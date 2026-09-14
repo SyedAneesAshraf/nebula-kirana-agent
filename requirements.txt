@@ -2,8 +2,10 @@
 python-dotenv>=1.0
 pytest>=8.0
 
-# Phase 2+ (added when each phase begins)
-# claude-agent-sdk
+# Phase 2 (in place now)
+google-genai>=2.0
+
+# Phase 3+ (added when each phase begins)
 # python-telegram-bot>=21.0
 # reportlab
 # python-pptx

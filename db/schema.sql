@@ -114,10 +114,30 @@ CREATE TABLE IF NOT EXISTS idempotency_keys (
 );
 
 CREATE TABLE IF NOT EXISTS agent_sessions (
-    chat_id         INTEGER PRIMARY KEY,
-    sdk_session_id  TEXT,
-    updated_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    chat_id     INTEGER PRIMARY KEY,
+    generation  INTEGER NOT NULL DEFAULT 1,
+    updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
+
+-- Full message history per chat, scoped by generation so a `/new` can move a
+-- chat onto a fresh generation (empty context) without deleting the old
+-- transcript -- memory (preferences) is re-fetched fresh regardless of
+-- generation, so it survives a /new even though the transcript doesn't.
+-- Shape follows the Gemini API's Content type: role is 'user' or 'model'
+-- only (no separate system/tool role -- a function result is a 'user'-role
+-- Content containing a function_response part), and parts_json is the JSON
+-- list of parts (text / function_call / function_response dicts) making up
+-- that one Content.
+CREATE TABLE IF NOT EXISTS agent_messages (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id     INTEGER NOT NULL,
+    generation  INTEGER NOT NULL,
+    role        TEXT NOT NULL CHECK (role IN ('user', 'model')),
+    parts_json  TEXT NOT NULL,
+    created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_messages_chat_gen ON agent_messages(chat_id, generation, id);
 
 CREATE TABLE IF NOT EXISTS audit_log (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,

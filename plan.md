@@ -39,28 +39,56 @@ self-sufficient — Telegram long-polling works from any machine with outbound i
 "running locally" and "running in production" are the same process pointed at the same kind
 of SQLite file; only the *where* changes later).
 
+**Harness pivot #1 (post Phase 1):** no Anthropic API access was available, so the harness moved
+from Claude Agent SDK to a hand-rolled tool-calling loop. This is still brief-compliant — the
+brief says "any modern agent harness... or equivalent." The pivot only touches the *agent*
+layer: **the entire `domain/` layer from Phase 1 is unchanged and provider-agnostic** — the
+oversell guard, GST math, idempotency, and khata rules were already proven correct against
+plain SQLite transactions, independent of any LLM. What's lost by not using Claude Agent SDK is
+convenience, not correctness: no built-in session-resumption (we persist the message list
+ourselves in `agent_messages`) and no `PreToolUse` hard-deny hook (irrelevant anyway — the
+authoritative enforcement was always in `domain/`'s atomic SQL, never in a hook).
+
+**Harness pivot #2:** first tried Mistral (`mistralai` SDK) — code-complete and verified reaching
+the API correctly, but the available account had no usable quota (persistent 429 across two keys
+and every model tier, even after backoff). Moved to **Google Gemini** (`google-genai` SDK, the
+official current package), whose free tier proved to have a real, documented, workable quota
+(5 requests/minute per model on `gemini-3.6-flash` — confirmed empirically, including a live
+multi-tool bill-build-and-finalize round trip with correct GST math end to end). `tools/*.py`
+were untouched by this second pivot (they only depend on the provider-agnostic `ToolSpec`
+contract); only `agent/{mistral,gemini}_client.py` and the `agent_messages` schema changed,
+since Gemini's message shape is meaningfully different (see §7).
+
 ---
 
 ## 1. Harness choice and why
 
-**Claude Agent SDK (Python, `claude-agent-sdk`)** driving one `ClaudeSDKClient` session per
-Telegram chat, with all built-in coding tools removed and replaced entirely by our own
-in-process MCP tool servers.
+**A hand-rolled agent loop (Python) against the Gemini API** (`google-genai` SDK), driving one
+persisted message-history per Telegram chat, with a flat tool registry (JSON-schema function
+declarations) wrapping every `domain/*.py` module. No MCP, no LangGraph.
 
-Why this over a hand-rolled Claude API loop or LangGraph-style state machine:
-- We get tool-calling loop, session persistence/resumption, and **hook-based interception**
-  (`PreToolUse` can deny a call outright) for free — the exact mechanism the brief's "refused
-  at the tool layer" language calls for, without us hand-writing an agent loop.
-- Sessions are transcripts on disk keyed by session id — a natural fit for "one Telegram chat
-  = one running conversation," and for the literal `/new` reset the demo script requires.
+Why this over other options:
+- Gemini's native function calling (`types.Tool(function_declarations=[...])` on
+  `generate_content`) gives the same shape of loop regardless of provider: the model decides
+  when to call a tool, we execute it and feed back a result, loop until it returns plain text.
+  This *is* the "observe → reason → act → feed result back → continue" control loop the brief
+  asks for — just written explicitly instead of provided by an SDK. Confirmed empirically: a
+  single natural-language "make a bill: 2kg sugar, 1 aashirvaad atta 5kg, 4 maggi, UPI" message
+  correctly chained `start_bill → add_bill_item ×3 → set_payment → finalize_bill` and returned a
+  bill with exactly correct GST figures.
 - Explicitly **not** a LangGraph node-per-command graph (the brief calls this out as a
   misread): there is exactly one agent here, reasoning freely over a flat, well-named tool
   surface. No per-intent nodes, no manual routing graph.
-- No subagents. Considered and rejected: this domain is one continuously-running
-  conversation about one shop's books (a bill being built, a khata balance being checked) —
-  splitting into subagents would fragment that shared context for no benefit. The one task
-  that *looks* subagent-shaped (document generation) is fully self-contained per call (build
-  file, hand back a confirmation), so it's just a tool, not a delegated agent.
+- No subagents, same reasoning as before: one continuously-running conversation about one
+  shop's books shouldn't be fragmented across agents for no benefit.
+- Session persistence is now our own responsibility: `agent_messages` stores the full message
+  list per `(chat_id, generation)`; `/new` bumps `generation` rather than deleting history, so
+  old messages are excluded from context but kept for audit — the literal mechanism for "memory
+  lives outside the context window" the brief asks for.
+- Operational note for the README: the free tier is rate-limited (5 req/min/model) — fine for a
+  human texting the bot at a natural pace, but a rapid multi-tool chain can burn several requests
+  in one turn. Worth a line in the demo recording notes and a candidate for a paid-tier bump
+  before the review window if it causes friction.
 
 ---
 
@@ -69,7 +97,7 @@ Why this over a hand-rolled Claude API loop or LangGraph-style state machine:
 ```
 nebula-supermarket-agent/
 ├── README.md                       # harness+why, control loop, tool design, hard-parts writeup
-├── .env.example                    # ANTHROPIC_API_KEY, TELEGRAM_BOT_TOKEN, DB_PATH, SHOP_* defaults
+├── .env.example                     # GEMINI_API_KEY, TELEGRAM_BOT_TOKEN, DB_PATH, SHOP_* defaults
 ├── pyproject.toml / requirements.txt
 ├── run.py                          # entrypoint: builds Application + SessionManager, run_polling()
 ├── config.py                       # env loading
@@ -87,7 +115,7 @@ nebula-supermarket-agent/
 ├── documents/
 │   ├── invoice_pdf.py              # reportlab GST invoice renderer
 │   └── analysis_deck.py            # python-pptx deck w/ native charts
-├── tools/                          # thin MCP adapters: parse args -> call domain/* -> shape MCP result
+├── tools/                          # thin adapters: parse args -> call domain/* -> shape a tool result
 │   ├── inventory_tools.py
 │   ├── billing_tools.py
 │   ├── khata_tools.py
@@ -96,8 +124,9 @@ nebula-supermarket-agent/
 │   └── preference_tools.py
 ├── agent/
 │   ├── system_prompt.py            # persona + hard rules + dynamic preferences snapshot
-│   ├── session_manager.py          # chat_id -> ClaudeSDKClient, /new handling, idle eviction
-│   └── hooks.py                    # PreToolUse audit log + defense-in-depth guard
+│   ├── tool_registry.py            # ToolSpec dataclass, JSON-schema conversion, name->handler dispatch
+│   ├── gemini_client.py            # the tool-calling loop: send -> function_calls? -> execute -> feed back -> repeat
+│   └── session_manager.py          # chat_id+generation message history, /new handling
 ├── telegram_bot/
 │   ├── handlers.py                 # message/command handlers, update_id dedupe
 │   └── attachments.py              # send_document/send_photo helper, injected into doc tools
@@ -109,20 +138,23 @@ nebula-supermarket-agent/
 ```
 
 Why domain/ is separate from tools/: business rules must live "in the skills/tools, not the
-prompt" — but they should also be unit-testable without spinning up the SDK or Telegram. The
+prompt" — but they should also be unit-testable without spinning up a model or Telegram. The
 `domain/` modules contain 100% of the logic and DB transactions; `tools/` are thin translators
-between an MCP tool call and a domain function call. This also means the tricky correctness
-tests (concurrency, idempotency, GST rounding) can run in plain pytest with no network/model
+between a model-issued tool call and a domain function call. This also means the tricky
+correctness tests (concurrency, idempotency, GST rounding) can run in plain pytest with no
+network/model
 calls at all.
 
 ---
 
 ## 3. Tool surface (the part that's actually graded)
 
-Six in-process MCP servers, registered under `mcpServers: {inventory, billing, khata,
-analytics, documents, preferences}`, giving tool names like `mcp__billing__finalize_bill`.
-`disallowedTools`/`tools: []` removes every built-in coding tool — the agent can *only* touch
-the store through these.
+Six tool modules (inventory, billing, khata, analytics, documents, preferences), each exporting
+a flat list of `ToolSpec(name, description, json_schema, handler)`. `agent/tool_registry.py`
+merges them into the single `types.Tool(function_declarations=[...])` sent on every Gemini
+request, and dispatches an incoming function call by name back to its handler. There is no
+other way for the model to touch the store — no filesystem, no shell, nothing but these
+functions.
 
 **inventory**
 - `find_product(query)` — fuzzy name/alias match; returns candidates (id, name, unit, price,
@@ -204,7 +236,8 @@ bill_lines(id, bill_id, product_id, description_snapshot, unit, qty,
 preferences(key PRIMARY KEY, value, updated_at)
 telegram_processed_updates(update_id PRIMARY KEY, chat_id, processed_at)
 idempotency_keys(tool_name, key, result_json, created_at, PRIMARY KEY(tool_name, key))
-agent_sessions(chat_id PRIMARY KEY, sdk_session_id, updated_at)
+agent_sessions(chat_id PRIMARY KEY, generation INTEGER DEFAULT 1, updated_at)
+agent_messages(id, chat_id, generation, role['user'|'model'], parts_json, created_at)
 audit_log(id, chat_id, tool_name, tool_input_json, decision, created_at)
 ```
 
@@ -226,7 +259,7 @@ which is a common mistake this design deliberately avoids).
 | 6 | Concurrency | SQLite WAL + `busy_timeout` + `BEGIN IMMEDIATE` serializes writers; the atomic `UPDATE ... WHERE qty_on_hand >= ?` pattern above makes a concurrent sale-vs-sale or sale-vs-stock-in race safe without external locking. |
 | 7 | Guardrails | "Below cost" checked in `finalize_bill` (line unit_price vs `cost_price`) → returns a confirm-needed result, not a silent sale; `adjust_stock` requires a reason and can't go negative; `record_khata_payment`/`charge_to_credit` refuse an unknown customer_ref outright (khata tools never auto-create a customer). |
 | 8 | Real artifacts | `reportlab` (pure-Python, no system binary dependency) for the invoice; `python-pptx` native chart objects (`CategoryChartData` + `add_chart`) for the deck — real editable PowerPoint charts, not embedded screenshots. |
-| 9 | Cross-session memory | `preferences` table, fetched fresh and appended into the system prompt at the start of every session (including after `/new`), plus a live `get_preferences`/`set_preference` tool pair so it's also readable/writable mid-conversation. Session transcripts (SDK's own resumption) are conversation continuity only — never where business memory lives. |
+| 9 | Cross-session memory | `preferences` table, fetched fresh and appended into the system prompt at the start of every session (including after `/new`), plus a live `get_preferences`/`set_preference` tool pair so it's also readable/writable mid-conversation. `agent_messages` (conversation transcript) is continuity only — never where business memory lives. |
 
 ---
 
@@ -234,7 +267,7 @@ which is a common mistake this design deliberately avoids).
 
 | Product | Unit | HSN | GST | Note |
 |---|---|---|---|---|
-| Loose Atta / Rice / Toor Dal | per kg | — | 0% | loose staple, nil-rated |
+| Loose Atta / Rice / Toor Dal / Sugar | per kg | — | 0% | loose staple, nil-rated |
 | Tata Salt 1kg | packet | 2501 | 0% | edible salt, nil-rated |
 | Aashirvaad Atta 5kg | packet | 1101 | 5% | packaged staple |
 | Amul Butter 100g | packet | 0405 | 5% | moved 12%→5% in GST 2.0 |
@@ -254,18 +287,24 @@ the engine is data-driven specifically so this is correctable without touching c
 
 1. `python-telegram-bot` (v21+, async, long-polling) receives an update → check
    `telegram_processed_updates`; skip if already seen; else record it.
-2. `SessionManager.get_or_create(chat_id)`: looks up `agent_sessions.sdk_session_id`; if
-   present, resumes that `ClaudeSDKClient` session; else creates a fresh one with a system
-   prompt built from `system_prompt.py` (persona + hard rules + current `preferences`
-   snapshot).
-3. `/new` command (our Telegram-side equivalent of the demo's "/new chat"): discards the
-   session mapping row and starts a brand-new SDK session on the next message — transcript
-   memory is gone, `preferences` memory is not, because it's re-fetched into the new system
-   prompt.
-4. `client.query(text)` → SDK drives the tool-use loop against our six MCP servers (built-in
-   tools fully disabled) → `PreToolUse` hook logs every call to `audit_log` (defense-in-depth
-   / traceability, on top of the domain-layer guards, which are the authoritative
-   enforcement) → final assistant text returned.
+2. `SessionManager.handle_message(chat_id)`: reads `agent_sessions.generation` and every
+   `agent_messages` row for that `(chat_id, generation)`, rebuilding the Gemini `contents` list
+   to send. The system instruction is always freshly built by `system_prompt.py` (persona +
+   hard rules + current `preferences` snapshot) and passed as `GenerateContentConfig.
+   system_instruction` — never itself persisted as a Content, so a changed preference is
+   picked up even without a `/new`.
+3. `/new` command (our Telegram-side equivalent of the demo's "/new chat"): increments
+   `agent_sessions.generation` for that chat. Old `agent_messages` rows stay in the DB (audit
+   trail) but are excluded from the next history load — transcript memory is gone,
+   `preferences` memory is not, because it's re-fetched fresh into the next turn's system
+   prompt regardless of generation.
+4. The turn loop (`agent/gemini_client.py`): send `contents` + the `Tool(function_declarations
+   =[...])` to `generate_content(...)`; if the response has `function_calls`, execute each via
+   `tool_registry.dispatch(name, args)` (calls the matching `tools/*.py` handler, which catches
+   `DomainError` into a structured error payload), pack all results into one `role="user"`
+   Content of `function_response` parts, and loop; once the response has plain text with no
+   function calls, that is the assistant's reply. Every Content produced (the user's message,
+   each model turn, each function-result turn) is persisted to `agent_messages` as it occurs.
 5. Document tools (`generate_invoice_pdf`, `generate_analysis_deck`) have the chat's `bot` +
    `chat_id` injected by closure, so they push the file to Telegram directly as a side effect
    and return a one-line confirmation to the model — no separate "pending attachment" queue.
@@ -276,11 +315,14 @@ the engine is data-driven specifically so this is correctable without touching c
 ## 8. Day-by-day plan (5 calendar days)
 
 - **Day 1** — repo scaffold, `db/schema.sql` + `seed.py`, all of `domain/` with unit tests
-  (GST rounding, atomic stock decrement, idempotency) passing against plain pytest — no SDK
-  or Telegram involved yet, so the hardest correctness logic is nailed down first.
-- **Day 2** — wrap `domain/` in the six MCP tool servers; wire `agent/` (system prompt,
-  session manager, hooks); get a bare Claude Agent SDK session round-tripping tool calls
-  from a terminal script (no Telegram yet).
+  (GST rounding, atomic stock decrement, idempotency) passing against plain pytest — no model
+  or Telegram involved yet, so the hardest correctness logic is nailed down first. ✅ done.
+- **Day 2** — wrap `domain/` in the six tool modules; wire `agent/` (system prompt, tool
+  registry, Gemini tool-calling loop, session manager); verified live against the real Gemini
+  API from a terminal harness (no Telegram yet) — a full natural-language multi-item bill build
+  + finalize round-tripped correctly with exactly-correct GST figures. ✅ done (after a harness
+  detour: Claude → Mistral → Gemini, see the pivot notes above; `domain/` and `tools/` were
+  untouched by either pivot).
 - **Day 3** — Telegram integration (`telegram_bot/`), full run.py; manually run every §3
   scenario end-to-end locally (receive stock → multi-item bill with an edit → oversell guard
   → khata cycle → preference set → `/new` → preference remembered).
