@@ -3,11 +3,11 @@ from domain import preferences
 from tools._common import call_domain
 
 
-def _get_preferences(conn, chat_id, tool_call_id):
+async def _get_preferences(conn, chat_id, tool_call_id):
     return call_domain(lambda: preferences.get_preferences(conn))
 
 
-def _set_preference(conn, chat_id, tool_call_id, *, key, value):
+async def _set_preference(conn, chat_id, tool_call_id, *, key, value):
     return call_domain(lambda: preferences.set_preference(conn, key, value))
 
 

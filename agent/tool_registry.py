@@ -2,15 +2,18 @@
 ToolSpec objects; this module merges them into the single list sent on every
 model request and dispatches an incoming tool call back to its handler.
 
-Handler signature is always (conn, chat_id, tool_call_id, **model_args):
+Handler signature is always async (conn, chat_id, tool_call_id, **model_args):
 chat_id is bound by the dispatcher from the authenticated Telegram update --
 never a model-supplied argument, and defensively stripped if a model ever
 tries -- and tool_call_id lets a handler derive a stable idempotency key
-without asking the model to invent one itself."""
+without asking the model to invent one itself. Handlers are async (even the
+ones that never await anything) so a document tool can directly `await` a
+Telegram send as a side effect of the tool call, with no separate
+'pending attachment' queue for the caller to manage."""
 
 import json
 from dataclasses import dataclass
-from typing import Callable
+from typing import Awaitable, Callable
 
 
 @dataclass(frozen=True)
@@ -18,7 +21,7 @@ class ToolSpec:
     name: str
     description: str
     parameters: dict  # JSON schema: {"type": "object", "properties": {...}, "required": [...]}
-    handler: Callable[..., dict]
+    handler: Callable[..., Awaitable[dict]]
 
 
 class ToolRegistry:
@@ -32,7 +35,7 @@ class ToolRegistry:
     def specs(self) -> list[ToolSpec]:
         return list(self._by_name.values())
 
-    def dispatch(self, conn, chat_id: int, tool_call_id: str, name: str, arguments: dict) -> dict:
+    async def dispatch(self, conn, chat_id: int, tool_call_id: str, name: str, arguments: dict) -> dict:
         spec = self._by_name.get(name)
         if spec is None:
             result = {"status": "error", "message": f"Unknown tool '{name}'."}
@@ -42,7 +45,7 @@ class ToolRegistry:
         arguments.pop("chat_id", None)  # never trust a model-supplied identity/tenant field
         arguments.pop("idempotency_key", None)  # idempotency is derived server-side, not model-supplied
         try:
-            result = spec.handler(conn, chat_id, tool_call_id, **arguments)
+            result = await spec.handler(conn, chat_id, tool_call_id, **arguments)
         except TypeError as e:
             result = {"status": "error", "message": f"Bad arguments for '{name}': {e}"}
         self._audit(conn, chat_id, name, arguments, result)

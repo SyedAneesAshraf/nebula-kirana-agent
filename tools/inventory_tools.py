@@ -9,15 +9,15 @@ _PRODUCT_REF_DESC = (
 )
 
 
-def _find_product(conn, chat_id, tool_call_id, *, query):
+async def _find_product(conn, chat_id, tool_call_id, *, query):
     return call_domain(lambda: inventory.find_product(conn, query))
 
 
-def _get_product(conn, chat_id, tool_call_id, *, product_id):
+async def _get_product(conn, chat_id, tool_call_id, *, product_id):
     return call_domain(lambda: inventory.get_product(conn, product_id))
 
 
-def _add_product(conn, chat_id, tool_call_id, *, name, unit, is_loose, hsn_code, gst_rate,
+async def _add_product(conn, chat_id, tool_call_id, *, name, unit, is_loose, hsn_code, gst_rate,
                   cost_price, mrp, reorder_level=0, opening_qty=0, aliases=""):
     return call_domain(lambda: inventory.add_product(
         conn, name=name, unit=unit, is_loose=is_loose, hsn_code=hsn_code, gst_rate=gst_rate,
@@ -26,7 +26,7 @@ def _add_product(conn, chat_id, tool_call_id, *, name, unit, is_loose, hsn_code,
     ))
 
 
-def _receive_stock(conn, chat_id, tool_call_id, *, product_ref, qty, cost_price=None, mrp=None):
+async def _receive_stock(conn, chat_id, tool_call_id, *, product_ref, qty, cost_price=None, mrp=None):
     idem_key = f"{chat_id}:{tool_call_id}"
     return call_domain(lambda: inventory.receive_stock(
         conn, product_ref=product_ref, qty=qty, cost_price=cost_price, mrp=mrp,
@@ -34,15 +34,15 @@ def _receive_stock(conn, chat_id, tool_call_id, *, product_ref, qty, cost_price=
     ))
 
 
-def _adjust_stock(conn, chat_id, tool_call_id, *, product_id, delta, reason):
+async def _adjust_stock(conn, chat_id, tool_call_id, *, product_id, delta, reason):
     return call_domain(lambda: inventory.adjust_stock(conn, product_id=product_id, delta=delta, reason=reason))
 
 
-def _list_low_stock(conn, chat_id, tool_call_id):
+async def _list_low_stock(conn, chat_id, tool_call_id):
     return call_domain(lambda: inventory.list_low_stock(conn))
 
 
-def _get_reorder_suggestions(conn, chat_id, tool_call_id):
+async def _get_reorder_suggestions(conn, chat_id, tool_call_id):
     return call_domain(lambda: inventory.get_reorder_suggestions(conn))
 
 

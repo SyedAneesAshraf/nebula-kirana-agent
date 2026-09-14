@@ -1,5 +1,7 @@
-"""Terminal REPL for exercising the agent loop against the real Mistral API
-before wiring up Telegram. Run: python -m scripts.repl [chat_id]"""
+"""Terminal REPL for exercising the full agent loop (including document
+generation) against the real Gemini API without needing Telegram running.
+Generated files are printed as local paths instead of being sent to a chat.
+Run: python -m scripts.repl [chat_id]"""
 
 import asyncio
 import sys
@@ -11,7 +13,11 @@ from agent.session_manager import SessionManager
 from agent.tool_registry import ToolRegistry
 from db.connection import get_connection, init_db
 from db.seed import seed as seed_db
-from tools import analytics_tools, billing_tools, inventory_tools, khata_tools, preference_tools
+from tools import analytics_tools, billing_tools, document_tools, inventory_tools, khata_tools, preference_tools
+
+
+async def _print_document(chat_id: int, path: str, caption: str) -> None:
+    print(f"[document] {caption} -> {path}")
 
 
 def build_registry() -> ToolRegistry:
@@ -21,6 +27,7 @@ def build_registry() -> ToolRegistry:
         *khata_tools.TOOLS,
         *analytics_tools.TOOLS,
         *preference_tools.TOOLS,
+        *document_tools.build_tools(_print_document),
     ]
     return ToolRegistry(specs)
 

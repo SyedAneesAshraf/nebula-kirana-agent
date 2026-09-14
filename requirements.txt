@@ -8,6 +8,6 @@ google-genai>=2.0
 # Phase 3 (in place now)
 python-telegram-bot>=21.0
 
-# Phase 4 (added when it begins)
-# reportlab
-# python-pptx
+# Phase 4 (in place now)
+reportlab>=4.0
+python-pptx>=1.0

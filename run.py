@@ -2,6 +2,7 @@
 runs long-polling. `python run.py`"""
 
 import logging
+from pathlib import Path
 
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
 
@@ -11,7 +12,7 @@ from agent.tool_registry import ToolRegistry
 from db.connection import get_connection, init_db
 from db.seed import seed as seed_db
 from telegram_bot import handlers
-from tools import analytics_tools, billing_tools, inventory_tools, khata_tools, preference_tools
+from tools import analytics_tools, billing_tools, document_tools, inventory_tools, khata_tools, preference_tools
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 # httpx (used internally by python-telegram-bot) logs full request URLs at
@@ -21,13 +22,14 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 
-def build_registry() -> ToolRegistry:
+def build_registry(send_document) -> ToolRegistry:
     return ToolRegistry([
         *inventory_tools.TOOLS,
         *billing_tools.TOOLS,
         *khata_tools.TOOLS,
         *analytics_tools.TOOLS,
         *preference_tools.TOOLS,
+        *document_tools.build_tools(send_document),
     ])
 
 
@@ -42,10 +44,15 @@ def main() -> None:
     seed_db(conn)
     conn.close()
 
-    manager = SessionManager(build_registry())
+    app = Application.builder().token(config.TELEGRAM_BOT_TOKEN).build()
+
+    async def send_document(chat_id: int, path: str, caption: str) -> None:
+        with open(path, "rb") as f:
+            await app.bot.send_document(chat_id=chat_id, document=f, filename=Path(path).name, caption=caption)
+
+    manager = SessionManager(build_registry(send_document))
     handlers.set_session_manager(manager)
 
-    app = Application.builder().token(config.TELEGRAM_BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", handlers.on_start))
     app.add_handler(CommandHandler("new", handlers.on_new))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.on_message))

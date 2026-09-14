@@ -99,7 +99,7 @@ class GeminiAgent:
             response_parts = []
             for i, call in enumerate(calls):
                 call_id = call.id or f"{chat_id}:{len(new_entries)}:{i}"
-                result = self._registry.dispatch(conn, chat_id, call_id, call.name, call.args or {})
+                result = await self._registry.dispatch(conn, chat_id, call_id, call.name, call.args or {})
                 fr = {"name": call.name, "response": {"output": result}}
                 if call.id:
                     fr["id"] = call.id

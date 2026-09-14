@@ -5,30 +5,30 @@ from tools._common import call_domain
 _CUSTOMER_REF_DESC = "Customer id (if known) or their name, e.g. 'Ramesh'."
 
 
-def _find_customer(conn, chat_id, tool_call_id, *, name):
+async def _find_customer(conn, chat_id, tool_call_id, *, name):
     return call_domain(lambda: khata.find_customer(conn, name))
 
 
-def _add_customer(conn, chat_id, tool_call_id, *, name, phone=None, aliases=""):
+async def _add_customer(conn, chat_id, tool_call_id, *, name, phone=None, aliases=""):
     return call_domain(lambda: khata.add_customer(conn, name, phone, aliases))
 
 
-def _get_khata_balance(conn, chat_id, tool_call_id, *, customer_ref):
+async def _get_khata_balance(conn, chat_id, tool_call_id, *, customer_ref):
     return call_domain(lambda: khata.get_khata_balance(conn, customer_ref))
 
 
-def _list_khata_customers(conn, chat_id, tool_call_id, *, min_balance=0):
+async def _list_khata_customers(conn, chat_id, tool_call_id, *, min_balance=0):
     return call_domain(lambda: khata.list_khata_customers(conn, min_balance))
 
 
-def _charge_to_credit(conn, chat_id, tool_call_id, *, customer_ref, amount):
+async def _charge_to_credit(conn, chat_id, tool_call_id, *, customer_ref, amount):
     idem_key = f"{chat_id}:{tool_call_id}"
     return call_domain(lambda: khata.charge_to_credit(
         conn, customer_ref=customer_ref, amount=amount, idempotency_key=idem_key
     ))
 
 
-def _record_khata_payment(conn, chat_id, tool_call_id, *, customer_ref, amount, mode, reference=None):
+async def _record_khata_payment(conn, chat_id, tool_call_id, *, customer_ref, amount, mode, reference=None):
     idem_key = f"{chat_id}:{tool_call_id}"
     return call_domain(lambda: khata.record_khata_payment(
         conn, customer_ref=customer_ref, amount=amount, mode=mode, reference=reference,

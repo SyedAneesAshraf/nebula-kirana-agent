@@ -3,15 +3,15 @@ from domain import analytics
 from tools._common import call_domain
 
 
-def _get_daily_summary(conn, chat_id, tool_call_id, *, date=None):
+async def _get_daily_summary(conn, chat_id, tool_call_id, *, date=None):
     return call_domain(lambda: analytics.get_daily_summary(conn, date))
 
 
-def _close_day(conn, chat_id, tool_call_id, *, date=None):
+async def _close_day(conn, chat_id, tool_call_id, *, date=None):
     return call_domain(lambda: analytics.close_day(conn, date))
 
 
-def _get_sales_range_summary(conn, chat_id, tool_call_id, *, start_date, end_date):
+async def _get_sales_range_summary(conn, chat_id, tool_call_id, *, start_date, end_date):
     return call_domain(lambda: analytics.get_sales_range_summary(conn, start_date, end_date))
 
 

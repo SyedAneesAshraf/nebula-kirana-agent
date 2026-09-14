@@ -6,45 +6,45 @@ _PRODUCT_REF_DESC = "Product id (if known) or free text name, e.g. 'maggi' or '2
 _LINE_REF_DESC = "The bill line to edit: its numeric line id, or the product name/text used when it was added, e.g. 'butter'."
 
 
-def _get_open_bill(conn, chat_id, tool_call_id):
+async def _get_open_bill(conn, chat_id, tool_call_id):
     result = billing.get_open_bill(conn, chat_id)
     if result is None:
         return {"status": "not_found", "message": "No draft bill is open right now."}
     return {"status": "ok", **result}
 
 
-def _start_bill(conn, chat_id, tool_call_id, *, customer_ref=None):
+async def _start_bill(conn, chat_id, tool_call_id, *, customer_ref=None):
     return call_domain(lambda: billing.start_bill(conn, chat_id, customer_ref=customer_ref))
 
 
-def _add_bill_item(conn, chat_id, tool_call_id, *, bill_id, product_ref, qty, unit=None):
+async def _add_bill_item(conn, chat_id, tool_call_id, *, bill_id, product_ref, qty, unit=None):
     return call_domain(lambda: billing.add_bill_item(conn, bill_id, product_ref, qty, unit))
 
 
-def _update_bill_item_qty(conn, chat_id, tool_call_id, *, bill_id, line_ref, new_qty):
+async def _update_bill_item_qty(conn, chat_id, tool_call_id, *, bill_id, line_ref, new_qty):
     return call_domain(lambda: billing.update_bill_item_qty(conn, bill_id, line_ref, new_qty))
 
 
-def _remove_bill_item(conn, chat_id, tool_call_id, *, bill_id, line_ref):
+async def _remove_bill_item(conn, chat_id, tool_call_id, *, bill_id, line_ref):
     return call_domain(lambda: billing.remove_bill_item(conn, bill_id, line_ref))
 
 
-def _set_bill_payment(conn, chat_id, tool_call_id, *, bill_id, mode, reference=None):
+async def _set_bill_payment(conn, chat_id, tool_call_id, *, bill_id, mode, reference=None):
     return call_domain(lambda: billing.set_bill_payment(conn, bill_id, mode, reference))
 
 
-def _get_bill_summary(conn, chat_id, tool_call_id, *, bill_id):
+async def _get_bill_summary(conn, chat_id, tool_call_id, *, bill_id):
     return call_domain(lambda: billing.get_bill_summary(conn, bill_id))
 
 
-def _finalize_bill(conn, chat_id, tool_call_id, *, bill_id, allow_below_cost=False):
+async def _finalize_bill(conn, chat_id, tool_call_id, *, bill_id, allow_below_cost=False):
     idem_key = f"{chat_id}:{tool_call_id}"
     return call_domain(lambda: billing.finalize_bill(
         conn, bill_id, idempotency_key=idem_key, allow_below_cost=allow_below_cost
     ))
 
 
-def _cancel_bill(conn, chat_id, tool_call_id, *, bill_id):
+async def _cancel_bill(conn, chat_id, tool_call_id, *, bill_id):
     return call_domain(lambda: billing.cancel_bill(conn, bill_id))
 
 
