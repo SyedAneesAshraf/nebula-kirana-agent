@@ -5,7 +5,9 @@ pytest>=8.0
 # Phase 2 (in place now)
 google-genai>=2.0
 
-# Phase 3+ (added when each phase begins)
-# python-telegram-bot>=21.0
+# Phase 3 (in place now)
+python-telegram-bot>=21.0
+
+# Phase 4 (added when it begins)
 # reportlab
 # python-pptx
