@@ -1,0 +1,9 @@
+# Phase 1 (in place now)
+python-dotenv>=1.0
+pytest>=8.0
+
+# Phase 2+ (added when each phase begins)
+# claude-agent-sdk
+# python-telegram-bot>=21.0
+# reportlab
+# python-pptx
